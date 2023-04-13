@@ -1,4 +1,31 @@
 //0xilis, 2023/4/11, AstroBlaster
+//The source code is also available on https://github.com/0xilis/astroBlaster
+/*
+Changes from the build I sent you that you saw already:
+-In the first build I submitted, the enemies *are* animated, but they all have same poses at same time, now do different at different times
+-Move enemies up and down a little bc looks cool
+Changes from the build I showed you:
+-Added an affect to enemy lasers that make them slightly darker when closer to bottom
+-Make enemy lasers pulse white every once in a while
+-Added an explosion affect for whenever you hit a space invader
+-When you game over / victory, you no longer need to press play again, just press 'r' and project will reload
+-Fixed a minor bug where the code not allowing lasers to be fired if the last one you fired is less than 200 y away would not work properly if there were no enemies on screen
+-Score, Game Over text, Victory are all now white
+-New dedicated function for stopping all sound when game over rather than just stopping bg music, helps if for example laser sounds playing when game over so you can't hear rizz-sounds since theyd be drowned out
+-Slightly change size of enemy lasers
+V2.1 Changes:
+-fix amp OOB error with vetoPlayerSound
+-correctly wait for vetoPlayerSound to stop playing rather than waiting 500 ticks
+-decrease enemy fire sound amp
+-delay(10) to try and make sure that all sounds stop before rizz-sounds plays so it can be better heard
+-now have 5 variables for the same sound file because bug with sound library, hacky fix for: https://github.com/processing/p5.js-sound/issues/401
+
+This code is by me
+there *was* some code in Lasers class's display method from stack overflow but thats commented out
+because it was being veryy buggy
+so yeah this code is all by me
+:P
+
 /*
 FOR FIRST TIME USERS:
 YOU MAY HAVE PROBLEMS WITH import processing.sound.*;
@@ -27,13 +54,14 @@ SoundFile backgroundSong;
 boolean victory = false;
 int pulseBy = 0;
 boolean isPulsing = true;
-boolean i_can_has_debugger = true; //if debug mode, player cannot die. enemy lasers also are slower (assuming debug_enemyLaserSpeed is set to something lower). enemies also do not speed up. var named after the boot-arg for amfi kext, https://theapplewiki.com/wiki/PE_i_can_has_debugger_Patch. kind of buggy but only for debugging anyway so its not like this will affect anything normally
+boolean i_can_has_debugger = false; //if debug mode, player cannot die. enemy lasers also are slower (assuming debug_enemyLaserSpeed is set to something lower). enemies also do not speed up. var named after the boot-arg for amfi kext, https://theapplewiki.com/wiki/PE_i_can_has_debugger_Patch. kind of buggy but only for debugging anyway so its not like this will affect anything normally
 int debug_enemyLaserSpeed = 5;
 SoundFile gameOverMusic;
 int ticksSinceLastPulse = 0;
 int growSizeExt = 0;
 boolean isInDebugMenu = false;
 boolean gameOver_ignore_debug = false;
+SoundFile vetoPlayerSound;
 
 //FOR EXPLOSION
 PImage frame0;
@@ -63,6 +91,11 @@ PImage frame23;
 PImage frame24;
 PImage frame25;
 ArrayList<explosionEffect> explosionEffects = new ArrayList<explosionEffect>();
+SoundFile enemyDestroySound_1;
+SoundFile enemyDestroySound_2;
+SoundFile enemyDestroySound_3;
+SoundFile enemyDestroySound_4;
+SoundFile enemyDestroySound_5;
 
 void setup() {
   size(800,600);
@@ -158,6 +191,12 @@ void setup() {
   frame23 = loadImage("explosion/explosion-icegif-19-21.png");
   frame24 = loadImage("explosion/explosion-icegif-19-21.png");
   frame25 = loadImage("explosion/explosion-icegif-19-21.png");
+  //hacky fix because processing sound library sucks
+  enemyDestroySound_1 = new SoundFile(this, "explodeyShipGoByeBye.mp3");
+  enemyDestroySound_2 = new SoundFile(this, "explodeyShipGoByeBye.mp3");
+  enemyDestroySound_3 = new SoundFile(this, "explodeyShipGoByeBye.mp3");
+  enemyDestroySound_4 = new SoundFile(this, "explodeyShipGoByeBye.mp3");
+  enemyDestroySound_5 = new SoundFile(this, "explodeyShipGoByeBye.mp3");
 }
 
 void draw() {
@@ -183,6 +222,11 @@ void draw() {
   if (key == 'd') {
     player.right();
   }
+  //i thought i had
+  //optimization: we can make newEnemies only copied on setup() and reset(). absolutely no idea why this works since we're modifying values of the objects but it works sooooo
+  //because lasers was an array to pointers to lasers, and the newLasers copied from it had pointers to same
+  //so doing stuff like laser.moveUp(10) also affected newLasers so i assumed similar thing for newEnemies and enemies
+  //but now im getting ConcurrentModificationException
   ArrayList<Ships> newEnemies = new ArrayList<>(enemies);
   int iCanFireDaLasers = 1; //because for some reason my IDE forgot that booleans exist for some reason so i need to do a int lol.
   ArrayList<Lasers> newLasers = new ArrayList<>(lasers);
@@ -204,7 +248,7 @@ void draw() {
           //remove enemy since hit
             newEnemies.remove(enemyIndex);
             enemyIndex--;
-            enemyDestroySound.play();
+            hackyFixForSoundLibraryBug();
             destroyedShips++;
             explosionEffect effect = new explosionEffect(enemy.xPos(), enemy.yPos());
             explosionEffects.add(effect);
@@ -256,20 +300,30 @@ void draw() {
       int randEnemyLaserSize = rand.nextInt(10) + 10;
       Lasers enemyLaser = new Lasers(enemy.xPos() + 12, enemy.yPos() + 24, true, randEnemyLaserSize);
       enemyLasers.add(enemyLaser);
-      enemyPewSound.play();
+      enemyPewSound.play(1.0, 0.2);
     }
     if ((enemy.xPos() < (player.xPos() + 32)) && (enemy.xPos() > player.xPos())) {
       if ((enemy.yPos() < (player.yPos() + 32)) && (enemy.yPos() > player.yPos())) {
         if (!i_can_has_debugger) {
+          gameOver = true;
           stopAllSounds();
-          SoundFile vetoPlayerSound = new SoundFile(this, "rizz-sounds.mp3");
-          vetoPlayerSound.play(1.0, 35.0);
+          delay(10);
+          if (vetoPlayerSound == null) {
+            vetoPlayerSound = new SoundFile(this, "rizz-sounds.mp3");
+          }
+          //vetoPlayerSound.play(1.0, 35.0);
+          vetoPlayerSound.play(1.0, 1.0);
+          while (true) {
+            delay(100); //delay(100) to prevent 100% cpu usage
+            if (!vetoPlayerSound.isPlaying()) {
+              break;
+            }
+          }
           //i was thinking of playing compressed music to again make the load less obv (and technically this is compressed, orig is 772kb which i cut down to 310kb, but i was thinking of an even more compressed 124kb) but the pause after the sound affect actually seems fitting so i dont think i need to!!! yay!!!
           if (gameOverMusic == null) {
             gameOverMusic = new SoundFile(this, "GameOver.mp3"); //bad news!!!
           }
           gameOverMusic.play();
-          gameOver = true;
         }
       }
     }
@@ -298,15 +352,25 @@ void draw() {
     if ((enemyLaser.xPos() < (player.xPos() + 32)) && (enemyLaser.xPos() > player.xPos())) {
       if ((enemyLaser.yPos() < (player.yPos() + 32)) && (enemyLaser.yPos() > player.yPos())) {
         if (!i_can_has_debugger) {
+          gameOver = true;
           stopAllSounds();
-          SoundFile vetoPlayerSound = new SoundFile(this, "rizz-sounds.mp3");
-          vetoPlayerSound.play(1.0, 35.0);
+          delay(10);
+          if (vetoPlayerSound == null) {
+            vetoPlayerSound = new SoundFile(this, "rizz-sounds.mp3");
+          }
+          //vetoPlayerSound.play(1.0, 35.0);
+          vetoPlayerSound.play(1.0, 1.0);
           //i was thinking of playing compressed music to again make the load less obv (and technically this is compressed, orig is 772kb which i cut down to 310kb, but i was thinking of an even more compressed 124kb) but the pause after the sound affect actually seems fitting so i dont think i need to!!! yay!!!
           if (gameOverMusic == null) {
             gameOverMusic = new SoundFile(this, "GameOver.mp3"); //bad news!!!
           }
+          while (true) {
+            delay(100); //delay(100) to prevent 100% cpu usage
+            if (!vetoPlayerSound.isPlaying()) {
+              break;
+            }
+          }
           gameOverMusic.play();
-          gameOver = true;
         }
       }
     }
@@ -458,6 +522,24 @@ void stopAllSounds() {
   }
   if (enemyPewSound != null) {
     enemyPewSound.stop();
+  }
+  if (vetoPlayerSound != null) {
+    vetoPlayerSound.stop();
+  }
+  if (enemyDestroySound_1 != null) {
+    enemyDestroySound_1.stop();
+  }
+  if (enemyDestroySound_2 != null) {
+    enemyDestroySound_2.stop();
+  }
+  if (enemyDestroySound_3 != null) {
+    enemyDestroySound_3.stop();
+  }
+  if (enemyDestroySound_4 != null) {
+    enemyDestroySound_4.stop();
+  }
+  if (enemyDestroySound_5 != null) {
+    enemyDestroySound_5.stop();
   }
   if (i_can_has_debugger) {
     System.out.println("Stopped all sounds.");
@@ -622,4 +704,37 @@ void debug_debug_options() {
   System.out.println("i - increase debug_enemyLaserSpeed");
   System.out.println("u - decrease debug_enemyLaserSpeed");
   System.out.println("g - issue a force game over by setting gameOver to true, and gameOver_ignore_debug to true so i_can_has_debugger flag is ignored with runtime. if gameOver_ignore debug flag currently set, this will disable it.");
+}
+
+//i know this fix is hacky, but its not a problem with this project, rather the sound library
+//there is *NO* way to fix this myself, Processing has to fix it
+//so i do this hacky workaround to allow stop() to work if sound is playing multiple times
+//this issue is mentioned in https://github.com/processing/p5.js-sound/issues/401, but you actually don't need to loop() to happen, just have sound play multiple times
+//December 2019, still not fixed...
+void hackyFixForSoundLibraryBug() {
+  if (enemyDestroySound.isPlaying()) {
+    if (enemyDestroySound_1.isPlaying()) {
+      if (enemyDestroySound_2.isPlaying()) {
+        if (enemyDestroySound_3.isPlaying()) {
+          if (enemyDestroySound_4.isPlaying()) {
+            if (enemyDestroySound_5.isPlaying()) { 
+              //do not play sound
+            } else {
+              enemyDestroySound_5.play(1.0, 0.3);
+            }
+          } else {
+            enemyDestroySound_4.play(1.0, 0.3);
+          }
+        } else {
+          enemyDestroySound_3.play(1.0, 0.3);
+        }
+      } else {
+        enemyDestroySound_2.play(1.0, 0.3);
+      }
+    } else {
+      enemyDestroySound_1.play(1.0, 0.3);
+    }
+  } else {
+    enemyDestroySound.play(1.0, 0.3);
+  }
 }
